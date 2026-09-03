@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Check, Copy, Pencil, RotateCcw, Send } from "lucide-react";
+import { Check, Copy, Pencil, RotateCcw, Send, Tag } from "lucide-react";
 
-import { markAsContactedAction } from "@/app/actions";
+import { markAsContactedAction, updateStatusAction } from "@/app/actions";
+import { LEAD_STATUSES, STATUS_LABELS, type LeadStatus } from "@/lib/domain/types";
 
 interface FollowUpPanelProps {
   leadId: string;
+  status: LeadStatus;
   suggestion: string;
   rationale: string;
   /** Se false, o lead está fechado (ganho/perdido) e a ação é opcional. */
@@ -14,13 +16,15 @@ interface FollowUpPanelProps {
 }
 
 /**
- * "PRÓXIMA AÇÃO" — mensagem sugerida + copiar + marcar como contatado.
+ * "PRÓXIMA AÇÃO" — mensagem sugerida e as três ações do produto:
+ * copiar, marcar como contatado e alterar status.
  *
- * É o único componente com estado do produto: precisa de clipboard, edição
- * inline e confirmação visual imediata.
+ * É o único componente com estado real: precisa de clipboard, edição inline
+ * e confirmação visual imediata.
  */
 export function FollowUpPanel({
   leadId,
+  status,
   suggestion,
   rationale,
   needsAction,
@@ -30,7 +34,10 @@ export function FollowUpPanel({
   const [copied, setCopied] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusNote, setStatusNote] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [statusPending, startStatusTransition] = useTransition();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // A sugestão muda quando o lead muda de status — reflete no editor.
@@ -43,6 +50,12 @@ export function FollowUpPanel({
     const timer = setTimeout(() => setCopied(false), 2200);
     return () => clearTimeout(timer);
   }, [copied]);
+
+  useEffect(() => {
+    if (!statusNote) return;
+    const timer = setTimeout(() => setStatusNote(null), 2600);
+    return () => clearTimeout(timer);
+  }, [statusNote]);
 
   useEffect(() => {
     if (editing) textareaRef.current?.focus();
@@ -98,12 +111,33 @@ export function FollowUpPanel({
     });
   }
 
+  function handleStatusChange(next: LeadStatus) {
+    if (next === status) {
+      setStatusOpen(false);
+      return;
+    }
+    setError(null);
+    const form = new FormData();
+    form.set("leadId", leadId);
+    form.set("status", next);
+
+    startStatusTransition(async () => {
+      const result = await updateStatusAction(null, form);
+      if (result.ok) {
+        setStatusOpen(false);
+        setStatusNote(`Status alterado para ${STATUS_LABELS[next]}.`);
+      } else {
+        setError(result.message ?? "Não foi possível alterar o status.");
+      }
+    });
+  }
+
   if (done) {
     return (
-      <section className="card border-emerald-200 bg-emerald-50 p-6">
+      <section id="follow-up" className="card border-emerald-200 bg-emerald-50 p-6">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600">
-            <Check className="h-4.5 w-4.5 text-white" strokeWidth={3} />
+            <Check className="h-5 w-5 text-white" strokeWidth={3} />
           </span>
           <div>
             <p className="font-semibold text-emerald-900">Follow-up registrado.</p>
@@ -156,9 +190,18 @@ export function FollowUpPanel({
         </p>
 
         {error && (
-          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+          <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </p>
         )}
 
+        {statusNote && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            {statusNote}
+          </p>
+        )}
+
+        {/* ------------------------------------------------- as três ações */}
         <div className="mt-5 flex flex-wrap gap-2">
           <button type="button" onClick={handleCopy} className="btn-secondary">
             {copied ? (
@@ -185,14 +228,51 @@ export function FollowUpPanel({
 
           <button
             type="button"
+            onClick={() => setStatusOpen((open) => !open)}
+            aria-expanded={statusOpen}
+            className="btn-secondary"
+          >
+            <Tag className="h-4 w-4" />
+            Alterar status
+          </button>
+
+          <button
+            type="button"
             onClick={handleMarkContacted}
             disabled={pending}
-            className="btn-primary ml-auto"
+            className="btn-primary sm:ml-auto"
           >
             <Send className="h-4 w-4" />
             {pending ? "Registrando…" : "Marcar como contatado"}
           </button>
         </div>
+
+        {statusOpen && (
+          <div className="mt-4 rounded-lg border border-[var(--color-line)] bg-gray-50 p-4">
+            <p className="mb-3 text-sm font-medium">Alterar status para:</p>
+            <div className="flex flex-wrap gap-2">
+              {LEAD_STATUSES.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => handleStatusChange(option)}
+                  disabled={statusPending || option === status}
+                  className={`chip border transition-colors ${
+                    option === status
+                      ? "cursor-default border-[var(--color-brand)] bg-[var(--color-brand-soft)] text-[var(--color-brand)]"
+                      : "border-[var(--color-line)] bg-white text-[var(--color-ink-soft)] hover:bg-white/60 hover:text-[var(--color-ink)] disabled:opacity-50"
+                  }`}
+                >
+                  {STATUS_LABELS[option]}
+                  {option === status && " (atual)"}
+                </button>
+              ))}
+            </div>
+            {statusPending && (
+              <p className="mt-3 text-xs text-[var(--color-ink-faint)]">salvando…</p>
+            )}
+          </div>
+        )}
 
         {!needsAction && (
           <p className="mt-3 text-xs text-[var(--color-ink-faint)]">

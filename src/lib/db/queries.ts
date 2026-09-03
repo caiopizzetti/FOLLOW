@@ -187,7 +187,7 @@ export function markAsContacted(leadId: string, message?: string): void {
   insertHistory(
     leadId,
     "FOLLOW_UP",
-    trimmed ? `Follow-up enviado: "${trimmed}"` : "Follow-up enviado.",
+    trimmed ? `Follow-up realizado: "${trimmed}"` : "Follow-up realizado.",
     nowIso,
   );
 

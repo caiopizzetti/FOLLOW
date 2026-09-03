@@ -6,7 +6,7 @@ import {
   Building2,
   CalendarClock,
   CalendarDays,
-  Check,
+  CheckCircle2,
   Mail,
   MessageSquare,
   Phone,
@@ -16,7 +16,6 @@ import {
 import { PriorityBadge, StatusBadge } from "@/components/badges";
 import { FollowUpPanel } from "@/components/follow-up-panel";
 import { NoteForm } from "@/components/note-form";
-import { StatusControl } from "@/components/status-control";
 import { getHistory, getInsight } from "@/lib/db/queries";
 import { generateFollowUpMessage } from "@/lib/domain/follow-up";
 import { isOpen } from "@/lib/domain/stale";
@@ -25,8 +24,8 @@ import {
   formatCurrencyExact,
   formatDate,
   formatPhone,
-  formatShortDate,
   formatStalledDays,
+  formatTimelineDate,
 } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -68,8 +67,11 @@ export default async function LeadPage({
       </Link>
 
       {criado === "1" && (
-        <div className="card flex items-center gap-3 border-emerald-200 bg-emerald-50 px-5 py-3.5 text-sm text-emerald-900">
-          <Check className="h-4 w-4 shrink-0 text-emerald-600" strokeWidth={3} />
+        <div
+          role="status"
+          className="card flex items-center gap-3 border-emerald-200 bg-emerald-50 px-5 py-3.5 text-sm text-emerald-900"
+        >
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
           Oportunidade cadastrada. Ela já entrou no cálculo do painel.
         </div>
       )}
@@ -77,10 +79,10 @@ export default async function LeadPage({
       {/* ------------------------------------------------------ cabeçalho */}
       <header className="card p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-tight">{lead.name}</h1>
             <p className="mt-1 flex items-center gap-1.5 text-[var(--color-ink-soft)]">
-              <Building2 className="h-4 w-4" />
+              <Building2 className="h-4 w-4 shrink-0" />
               {lead.company ?? "Sem empresa"}
             </p>
           </div>
@@ -98,35 +100,13 @@ export default async function LeadPage({
           <span className="text-sm text-[var(--color-ink-soft)]">
             {open ? formatStalledDays(daysStalled) : "Ciclo encerrado"}
           </span>
-          <div className="ml-auto">
-            <StatusControl leadId={lead.id} status={lead.status} />
-          </div>
-        </div>
-
-        {/* Motivo do alerta — o produto sempre explica por que sinalizou. */}
-        <div
-          className={`mt-5 flex items-start gap-2.5 rounded-lg px-4 py-3 text-sm ${
-            needsAction
-              ? priority === "CRITICO"
-                ? "bg-red-50 text-red-800"
-                : "bg-amber-50 text-amber-800"
-              : "bg-gray-50 text-[var(--color-ink-soft)]"
-          }`}
-        >
-          <AlertTriangle
-            className={`mt-0.5 h-4 w-4 shrink-0 ${needsAction ? "" : "opacity-40"}`}
-          />
-          <span>
-            <strong className="font-medium">Por que apareceu aqui: </strong>
-            {reason}
-          </span>
         </div>
 
         <dl className="mt-5 grid gap-x-6 gap-y-4 border-t border-[var(--color-line)] pt-5 sm:grid-cols-2 lg:grid-cols-3">
           <Detail icon={Phone} label="Telefone" value={formatPhone(lead.phone)} />
           <Detail icon={Mail} label="E-mail" value={lead.email ?? "—"} />
           <Detail icon={Tag} label="Origem" value={lead.source ?? "—"} />
-          <Detail icon={CalendarDays} label="Criado em" value={formatDate(lead.createdAt)} />
+          <Detail icon={CalendarDays} label="Data de criação" value={formatDate(lead.createdAt)} />
           <Detail
             icon={MessageSquare}
             label="Último contato"
@@ -134,8 +114,8 @@ export default async function LeadPage({
           />
           <Detail
             icon={CalendarClock}
-            label="Próximo follow-up"
-            value={formatDate(lead.nextFollowUpAt)}
+            label="Dias parado"
+            value={open ? formatStalledDays(daysStalled) : "—"}
           />
         </dl>
 
@@ -149,9 +129,35 @@ export default async function LeadPage({
         )}
       </header>
 
+      {/* ------------------------------------------------ por que está aqui */}
+      <section className="card overflow-hidden">
+        <header className="border-b border-[var(--color-line)] px-6 py-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">
+            Por que está aqui?
+          </h2>
+        </header>
+        <div className="p-6">
+          <p
+            className={`flex items-start gap-2.5 rounded-lg px-4 py-3 text-[15px] ${
+              needsAction
+                ? priority === "CRITICO"
+                  ? "bg-red-50 font-medium text-red-800"
+                  : "bg-amber-50 font-medium text-amber-800"
+                : "bg-gray-50 text-[var(--color-ink-soft)]"
+            }`}
+          >
+            <AlertTriangle
+              className={`mt-0.5 h-4 w-4 shrink-0 ${needsAction ? "" : "opacity-40"}`}
+            />
+            {reason}
+          </p>
+        </div>
+      </section>
+
       {/* ---------------------------------------------------- próxima ação */}
       <FollowUpPanel
         leadId={lead.id}
+        status={lead.status}
         suggestion={suggestion.message}
         rationale={suggestion.rationale}
         needsAction={needsAction}
@@ -178,8 +184,8 @@ export default async function LeadPage({
                     className={`absolute -left-[1.8rem] top-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-white ${HISTORY_DOT[entry.type]}`}
                   />
                   <div className="flex flex-wrap items-baseline gap-x-2.5">
-                    <span className="text-sm font-medium tabular-nums">
-                      {formatShortDate(entry.createdAt)}
+                    <span className="text-sm font-semibold tabular-nums">
+                      {formatTimelineDate(entry.createdAt)}
                     </span>
                     <span className="text-xs uppercase tracking-wide text-[var(--color-ink-faint)]">
                       {HISTORY_LABELS[entry.type]}
@@ -194,8 +200,8 @@ export default async function LeadPage({
                 <li className="relative">
                   <span className="absolute -left-[1.8rem] top-1.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-4 ring-white" />
                   <div className="flex flex-wrap items-baseline gap-x-2.5">
-                    <span className="text-sm font-medium tabular-nums">
-                      {formatShortDate(new Date().toISOString())}
+                    <span className="text-sm font-semibold tabular-nums">
+                      {formatTimelineDate(new Date().toISOString())}
                     </span>
                     <span className="text-xs uppercase tracking-wide text-red-500">Alerta</span>
                   </div>

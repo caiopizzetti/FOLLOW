@@ -5,7 +5,7 @@ import { PriorityBadge, StatusBadge } from "@/components/badges";
 import { isOpen } from "@/lib/domain/stale";
 import { listInsights } from "@/lib/db/queries";
 import type { LeadInsight } from "@/lib/domain/types";
-import { formatCurrency, formatDate, formatStalledDays } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +58,7 @@ export default async function LeadsPage({
             <Link
               key={key}
               href={key === "todos" ? "/leads" : `/leads?filtro=${key}`}
-              aria-current={selected ? "page" : undefined}
+              aria-current={selected ? "true" : undefined}
               className={`chip border transition-colors ${
                 selected
                   ? "border-[var(--color-brand)] bg-[var(--color-brand-soft)] text-[var(--color-brand)]"

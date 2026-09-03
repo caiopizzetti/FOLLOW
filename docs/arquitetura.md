@@ -160,6 +160,34 @@ carrega instantâneo, não depende de rede e já parece nativa em cada SO.
 
 ---
 
+## Decisão 7 — route group `(list)` para não quebrar o 404
+
+`/leads/[id]` chama `notFound()` quando o lead não existe. Um `loading.tsx`
+em `src/app/leads/` criaria um boundary de Suspense em volta de **toda** a
+subárvore — inclusive `[id]` — e o Next passa a enviar o shell da resposta
+antes de o componente rodar. Resultado: a página 404 aparece na tela, mas o
+status HTTP volta 200.
+
+Isso foi encontrado em teste (o status caiu de 404 para 200 ao adicionar os
+estados de carregamento) e resolvido movendo a lista para um route group:
+
+```
+src/app/leads/
+├── error.tsx           # boundary de erro de toda a subárvore
+├── (list)/             # não aparece na URL
+│   ├── page.tsx        # /leads
+│   └── loading.tsx     # skeleton só da lista
+└── [id]/
+    ├── page.tsx        # /leads/[id]  — 404 real preservado
+    └── error.tsx
+```
+
+O route group escopa o Suspense à lista sem alterar a rota. `[id]` fica sem
+`loading.tsx` de propósito: lê uma linha do SQLite de forma síncrona, então o
+skeleton não apareceria de qualquer jeito, e um 404 correto vale mais.
+
+---
+
 ## Camadas
 
 ```
@@ -195,10 +223,11 @@ Quase tudo é Server Component. Viraram cliente apenas onde há estado real:
 
 | Componente | Por quê |
 | --- | --- |
-| `follow-up-panel.tsx` | clipboard, edição inline, confirmação visual |
+| `sidebar.tsx` | `usePathname()` para marcar o item ativo |
+| `follow-up-panel.tsx` | clipboard, edição inline, troca de status, confirmação visual |
 | `new-lead-form.tsx` | `useActionState` para erros de validação |
-| `status-control.tsx` | submete no `onChange` |
 | `note-form.tsx` | limpa o campo após salvar |
+| `error-state.tsx` | error boundaries precisam ser client components |
 
 Resultado: ~103 kB de JS compartilhado, e as páginas mais pesadas ficam em 110 kB.
 

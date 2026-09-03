@@ -21,6 +21,12 @@ const shortDateFormatter = new Intl.DateTimeFormat(locale, {
   timeZone,
 });
 
+const timelineDateFormatter = new Intl.DateTimeFormat(locale, {
+  day: "2-digit",
+  month: "short",
+  timeZone,
+});
+
 const fullDateFormatter = new Intl.DateTimeFormat(locale, {
   day: "2-digit",
   month: "2-digit",
@@ -41,6 +47,19 @@ export function formatCurrencyExact(value: number): string {
 /** 12/08 */
 export function formatShortDate(iso: string): string {
   return shortDateFormatter.format(new Date(iso));
+}
+
+/**
+ * "26 AGO" — usado na linha do tempo do histórico, onde o dia e o mês bastam
+ * e o formato numérico competiria visualmente com os valores em reais.
+ */
+export function formatTimelineDate(iso: string): string {
+  const parts = timelineDateFormatter.formatToParts(new Date(iso));
+  const day = parts.find((p) => p.type === "day")?.value ?? "";
+  const month = (parts.find((p) => p.type === "month")?.value ?? "")
+    .replace(".", "")
+    .toUpperCase();
+  return `${day} ${month}`;
 }
 
 /** 12/08/2025 */

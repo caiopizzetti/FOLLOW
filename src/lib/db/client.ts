@@ -15,7 +15,6 @@ const DB_FILE = process.env.FOLLOW_DB_PATH ?? path.join(process.cwd(), "data", "
 const SCHEMA_FILE = path.join(process.cwd(), "src", "lib", "db", "schema.sql");
 
 declare global {
-  // eslint-disable-next-line no-var
   var __followDb: DatabaseSync | undefined;
 }
 

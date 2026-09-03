@@ -171,6 +171,7 @@ aparece na listagem e já entra no cálculo do painel.
 ### Verificações automáticas
 
 ```bash
+npm run lint        # ESLint sem erros nem avisos
 npm run typecheck   # TypeScript sem erros
 npm run build       # build de produção
 ```
@@ -184,6 +185,7 @@ npm run build       # build de produção
 | `npm run dev` | Servidor de desenvolvimento em <http://localhost:3000> |
 | `npm run build` | Build de produção |
 | `npm start` | Roda o build de produção |
+| `npm run lint` | ESLint (flat config, regras do Next) |
 | `npm run typecheck` | Checagem de tipos (`tsc --noEmit`) |
 | `npm run db:reset` | Limpa as tabelas (mantém o arquivo do banco) |
 | `npm run db:seed` | Insere os dados fictícios de demonstração |
@@ -212,13 +214,23 @@ FOLLOW/
 └── src/
     ├── app/
     │   ├── actions.ts         # Server Actions (única porta de escrita)
-    │   ├── layout.tsx         # cabeçalho e navegação
-    │   ├── dashboard/page.tsx # /dashboard
+    │   ├── layout.tsx         # casca + sidebar
+    │   ├── global-error.tsx   # rede de segurança do layout raiz
+    │   ├── not-found.tsx      # 404
+    │   ├── dashboard/
+    │   │   ├── page.tsx       # /dashboard
+    │   │   ├── loading.tsx    # skeleton
+    │   │   └── error.tsx      # erro + "tentar de novo"
     │   └── leads/
-    │       ├── page.tsx       # /leads  (lista + filtros)
+    │       ├── error.tsx      # erro de toda a subárvore /leads
+    │       ├── (list)/        # route group — ver docs/arquitetura.md, Decisão 7
+    │       │   ├── page.tsx   # /leads  (lista + filtros)
+    │       │   └── loading.tsx
     │       ├── new/page.tsx   # /leads/new
-    │       └── [id]/page.tsx  # /leads/[id]
-    ├── components/            # UI (badges, cards, formulários, painel de follow-up)
+    │       └── [id]/
+    │           ├── page.tsx   # /leads/[id]
+    │           └── error.tsx
+    ├── components/            # UI (sidebar, badges, cards, formulários, follow-up)
     └── lib/
         ├── config.ts          # ⭐ TODOS OS LIMITES DO PRODUTO
         ├── format.ts          # moeda, datas, contagem de dias

@@ -232,6 +232,7 @@ As datas são relativas ao dia da execução, então a demonstração nunca "env
 
 | Verificação | Resultado |
 | --- | --- |
+| `npm run lint` | sem erros nem avisos |
 | `npm run typecheck` | sem erros |
 | `npm run build` | build de produção limpo |
 | Fluxo painel → lead → copiar → marcar → sai da fila | funciona |
@@ -243,5 +244,10 @@ As datas são relativas ao dia da execução, então a demonstração nunca "env
 | Responsividade a 390px (sem rolagem horizontal) | funciona |
 | Lead inexistente devolve 404 | funciona |
 
-Verificado com um roteiro automatizado no Chromium (34 asserções), rodado tanto
+| Sidebar com os 3 destinos e item ativo correto | funciona |
+| Estados de loading, vazio, erro e sucesso | existem em todas as rotas |
+| Lead inexistente devolve 404 (status, não só a tela) | funciona |
+| Persistência após reload **e** após restart do servidor | funciona |
+
+Verificado com um roteiro automatizado no Chromium (79 asserções), rodado tanto
 em `npm run dev` quanto em `npm start`.
