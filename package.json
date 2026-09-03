@@ -1,0 +1,31 @@
+{
+  "name": "follow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Recuperacao de oportunidades perdidas por falta de follow-up",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "db:reset": "node scripts/reset.mjs",
+    "db:seed": "node scripts/seed.mjs",
+    "setup": "node scripts/reset.mjs && node scripts/seed.mjs"
+  },
+  "dependencies": {
+    "next": "15.5.25",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "lucide-react": "^0.545.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.14",
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.14",
+    "typescript": "^5.9.2"
+  }
+}
