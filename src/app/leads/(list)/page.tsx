@@ -3,6 +3,8 @@ import { ArrowRight, Inbox } from "lucide-react";
 
 import { PriorityBadge, StatusBadge } from "@/components/badges";
 import { isOpen } from "@/lib/domain/stale";
+import { ConfigNotice } from "@/components/config-notice";
+import { describeConfigProblem } from "@/lib/db/client";
 import { listInsights } from "@/lib/db/queries";
 import type { LeadInsight } from "@/lib/domain/types";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -33,10 +35,13 @@ export default async function LeadsPage({
 }: {
   searchParams: Promise<{ filtro?: string }>;
 }) {
+  const configProblem = describeConfigProblem();
+  if (configProblem) return <ConfigNotice problem={configProblem} />;
+
   const { filtro } = await searchParams;
   const active: FilterKey = isFilterKey(filtro) ? filtro : "todos";
 
-  const all = listInsights();
+  const all = await listInsights();
   const rows = all.filter(FILTERS[active].test);
 
   return (

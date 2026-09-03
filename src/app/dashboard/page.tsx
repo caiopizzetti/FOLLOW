@@ -12,15 +12,23 @@ import {
 import { PriorityBadge, StatusBadge } from "@/components/badges";
 import { MetricCard } from "@/components/metric-card";
 import { followUpConfig } from "@/lib/config";
+import { ConfigNotice } from "@/components/config-notice";
+import { describeConfigProblem } from "@/lib/db/client";
 import { getDashboardMetrics, listInsights } from "@/lib/db/queries";
 import { formatCurrency, formatStalledDays } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const configProblem = describeConfigProblem();
+  if (configProblem) return <ConfigNotice problem={configProblem} />;
+
   const now = new Date();
-  const metrics = getDashboardMetrics(now);
-  const queue = listInsights(now).filter((i) => i.needsAction);
+  const [metrics, insights] = await Promise.all([
+    getDashboardMetrics(now),
+    listInsights(now),
+  ]);
+  const queue = insights.filter((i) => i.needsAction);
   const { critical } = followUpConfig.thresholds;
 
   return (

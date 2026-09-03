@@ -31,16 +31,17 @@ fila. Fim.
 
 | Item | Versão | Por quê |
 | --- | --- | --- |
-| Node.js | **22.5 ou superior** | O banco usa o módulo `node:sqlite`, embutido no Node 22+ |
+| Node.js | **20 ou superior** | Requisito do Next 15 e do cliente libSQL |
 | npm | 10+ | Acompanha o Node 22 |
 
 Confira com:
 
 ```bash
-node -v   # precisa ser >= v22.5.0
+node -v   # precisa ser >= v20
 ```
 
-Não é necessário instalar SQLite, Docker, Postgres nem compilar módulo nativo.
+Não é necessário instalar SQLite, Docker, Postgres nem compilar módulo nativo:
+o banco local é um arquivo, criado automaticamente.
 
 ---
 
@@ -187,6 +188,7 @@ npm run build       # build de produção
 | `npm start` | Roda o build de produção |
 | `npm run lint` | ESLint (flat config, regras do Next) |
 | `npm run typecheck` | Checagem de tipos (`tsc --noEmit`) |
+| `npm run db:push` | Cria as tabelas no banco alvo (usado antes do 1º deploy) |
 | `npm run db:reset` | Limpa as tabelas (mantém o arquivo do banco) |
 | `npm run db:seed` | Insere os dados fictícios de demonstração |
 | `npm run setup` | `db:reset` + `db:seed` |
@@ -310,6 +312,69 @@ O banco está vazio. Rode `npm run setup`.
 
 **`db:seed` diz que o banco já tem leads**
 É proteção contra duplicar a base. Use `npm run setup`.
+
+---
+
+## Deploy
+
+A aplicação roda na **Vercel**, com o banco hospedado no **Turso**.
+
+### Por que o banco mudou
+
+O SQLite em arquivo não funciona em serverless: na Vercel o sistema de
+arquivos do bundle é somente-leitura e o `/tmp` é efêmero e por instância.
+Como criar lead, marcar follow-up e mudar status são **escritas**, os dados se
+perderiam a cada requisição.
+
+A solução foi trocar o driver, não o banco: `@libsql/client` fala o mesmo
+dialeto SQLite, então **todo o SQL e toda a lógica continuam iguais**. O mesmo
+código atende os dois ambientes:
+
+| Ambiente | Banco |
+| --- | --- |
+| Local (`npm run dev`) | arquivo `data/follow.db` |
+| Produção (Vercel) | Turso, via `TURSO_DATABASE_URL` |
+
+### Variáveis de ambiente
+
+| Variável | Onde | Obrigatória |
+| --- | --- | --- |
+| `TURSO_DATABASE_URL` | Vercel → Settings → Environment Variables | sim, em produção |
+| `TURSO_AUTH_TOKEN` | idem | sim, em produção |
+
+Nunca comite esses valores. Use `.env.example` como referência e
+`.env.local` (ignorado pelo git) para desenvolvimento.
+
+Se as variáveis faltarem, a aplicação **sobe mesmo assim** e mostra uma tela
+explicando o que configurar — em vez de um erro genérico.
+
+### Primeiro deploy
+
+```bash
+# 1. criar o banco no Turso (uma vez)
+turso db create follow
+turso db show follow --url          # -> TURSO_DATABASE_URL
+turso db tokens create follow       # -> TURSO_AUTH_TOKEN
+
+# 2. criar as tabelas e popular a demo
+TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... npm run db:push
+TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... npm run db:seed
+
+# 3. publicar
+vercel --prod
+```
+
+### Deploys seguintes
+
+Depois que o projeto está conectado ao repositório na Vercel, **todo push para
+a branch de produção publica sozinho**. Para publicar manualmente:
+
+```bash
+vercel --prod
+```
+
+O banco não é tocado pelo deploy: schema e dados vivem no Turso e sobrevivem a
+qualquer publicação.
 
 ---
 

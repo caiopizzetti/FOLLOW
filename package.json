@@ -11,9 +11,11 @@
     "typecheck": "tsc --noEmit",
     "db:reset": "node scripts/reset.mjs",
     "db:seed": "node scripts/seed.mjs",
-    "setup": "node scripts/reset.mjs && node scripts/seed.mjs"
+    "setup": "node scripts/reset.mjs && node scripts/seed.mjs",
+    "db:push": "node scripts/push-schema.mjs"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "lucide-react": "^0.545.0",
     "next": "15.5.25",
     "react": "19.2.0",

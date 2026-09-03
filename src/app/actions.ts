@@ -65,7 +65,7 @@ export async function createLeadAction(
 
   let leadId: string;
   try {
-    const lead = createLead({
+    const lead = await createLead({
       name,
       phone: text(form, "phone"),
       email: text(form, "email"),
@@ -95,7 +95,7 @@ export async function markAsContactedAction(
   message?: string,
 ): Promise<ActionResult> {
   try {
-    markAsContacted(leadId, message);
+    await markAsContacted(leadId, message);
   } catch (error) {
     return {
       ok: false,
@@ -120,7 +120,7 @@ export async function updateStatusAction(
   }
 
   try {
-    updateStatus(leadId, statusRaw);
+    await updateStatus(leadId, statusRaw);
   } catch (error) {
     return {
       ok: false,
@@ -147,9 +147,9 @@ export async function addNoteAction(
 
   try {
     if (kind === "RESPONSE") {
-      registerResponse(leadId, message);
+      await registerResponse(leadId, message);
     } else {
-      addNote(leadId, message);
+      await addNote(leadId, message);
     }
   } catch (error) {
     return {

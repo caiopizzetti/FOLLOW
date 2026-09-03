@@ -16,6 +16,8 @@ import {
 import { PriorityBadge, StatusBadge } from "@/components/badges";
 import { FollowUpPanel } from "@/components/follow-up-panel";
 import { NoteForm } from "@/components/note-form";
+import { ConfigNotice } from "@/components/config-notice";
+import { describeConfigProblem } from "@/lib/db/client";
 import { getHistory, getInsight } from "@/lib/db/queries";
 import { generateFollowUpMessage } from "@/lib/domain/follow-up";
 import { isOpen } from "@/lib/domain/stale";
@@ -45,14 +47,17 @@ export default async function LeadPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ criado?: string }>;
 }) {
+  const configProblem = describeConfigProblem();
+  if (configProblem) return <ConfigNotice problem={configProblem} />;
+
   const { id } = await params;
   const { criado } = await searchParams;
 
-  const insight = getInsight(id);
+  const insight = await getInsight(id);
   if (!insight) notFound();
 
   const { lead, daysStalled, priority, needsAction, reason } = insight;
-  const history = getHistory(lead.id);
+  const history = await getHistory(lead.id);
   const suggestion = generateFollowUpMessage(insight);
   const open = isOpen(lead);
 

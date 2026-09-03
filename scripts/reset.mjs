@@ -1,12 +1,12 @@
 /**
- * Apaga e recria o banco local do MVP.
+ * Apaga o conteúdo do banco alvo e recria as tabelas.
  * Uso: npm run db:reset
  */
-import { openDb, DB_PATH } from "./db.mjs";
+import { openClient, pushSchema, TARGET } from "./db.mjs";
 
-const db = openDb();
-db.exec("DELETE FROM history;");
-db.exec("DELETE FROM leads;");
-db.close();
+const client = openClient();
+await pushSchema(client);
+await client.batch(["DELETE FROM history;", "DELETE FROM leads;"], "write");
+client.close();
 
-console.log(`Banco limpo: ${DB_PATH}`);
+console.log(`Banco limpo: ${TARGET}`);

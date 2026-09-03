@@ -202,6 +202,9 @@ Tipos: `CONTACT` · `FOLLOW_UP` · `RESPONSE` · `STATUS_CHANGE` · `NOTE`
 Os status e tipos são validados por `CHECK` no banco **e** por tipos do
 TypeScript.
 
+O banco é SQLite: arquivo local em desenvolvimento, Turso (libSQL) em
+produção. O mesmo SQL atende os dois — ver `docs/arquitetura.md`, Decisão 8.
+
 ---
 
 ## Dados de demonstração

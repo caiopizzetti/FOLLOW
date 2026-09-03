@@ -10,107 +10,107 @@ import type {
   LeadStatus,
 } from "../domain/types";
 import { STATUS_LABELS } from "../domain/types";
-import { getDb } from "./client";
+import { db } from "./client";
 
 /**
- * Camada de acesso a dados. Todo SQL do produto mora aqui — as telas so
- * chamam funcoes tipadas.
+ * Camada de acesso a dados. Todo SQL do produto mora aqui — as telas só
+ * chamam funções tipadas.
+ *
+ * O SQL é o mesmo desde a primeira versão: libSQL fala o dialeto do SQLite.
+ * O que mudou foi a API do driver, que é assíncrona.
  */
 
-interface LeadRow {
-  id: string;
-  name: string;
-  phone: string | null;
-  email: string | null;
-  company: string | null;
-  value: number;
-  status: string;
-  source: string | null;
-  created_at: string;
-  last_contact_at: string | null;
-  next_follow_up_at: string | null;
-  notes: string | null;
+type Row = Record<string, unknown>;
+
+function str(value: unknown): string {
+  return String(value ?? "");
 }
 
-interface HistoryRow {
-  id: string;
-  lead_id: string;
-  type: string;
-  message: string;
-  created_at: string;
+function nullableStr(value: unknown): string | null {
+  return value === null || value === undefined ? null : String(value);
 }
 
-function toLead(row: LeadRow): Lead {
+function toLead(row: Row): Lead {
   return {
-    id: row.id,
-    name: row.name,
-    phone: row.phone,
-    email: row.email,
-    company: row.company,
-    value: Number(row.value),
-    status: row.status as LeadStatus,
-    source: row.source,
-    createdAt: row.created_at,
-    lastContactAt: row.last_contact_at,
-    nextFollowUpAt: row.next_follow_up_at,
-    notes: row.notes,
+    id: str(row.id),
+    name: str(row.name),
+    phone: nullableStr(row.phone),
+    email: nullableStr(row.email),
+    company: nullableStr(row.company),
+    value: Number(row.value ?? 0),
+    status: str(row.status) as LeadStatus,
+    source: nullableStr(row.source),
+    createdAt: str(row.created_at),
+    lastContactAt: nullableStr(row.last_contact_at),
+    nextFollowUpAt: nullableStr(row.next_follow_up_at),
+    notes: nullableStr(row.notes),
   };
 }
 
-function toHistoryEntry(row: HistoryRow): HistoryEntry {
+function toHistoryEntry(row: Row): HistoryEntry {
   return {
-    id: row.id,
-    leadId: row.lead_id,
-    type: row.type as HistoryType,
-    message: row.message,
-    createdAt: row.created_at,
+    id: str(row.id),
+    leadId: str(row.lead_id),
+    type: str(row.type) as HistoryType,
+    message: str(row.message),
+    createdAt: str(row.created_at),
   };
 }
 
 /* ------------------------------------------------------------------ leitura */
 
-export function listLeads(): Lead[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM leads ORDER BY created_at DESC")
-    .all() as unknown as LeadRow[];
-  return rows.map(toLead);
+export async function listLeads(): Promise<Lead[]> {
+  const client = await db();
+  const result = await client.execute("SELECT * FROM leads ORDER BY created_at DESC");
+  return result.rows.map((row) => toLead(row as unknown as Row));
 }
 
-export function getLead(id: string): Lead | null {
-  const row = getDb().prepare("SELECT * FROM leads WHERE id = ?").get(id) as
-    | unknown
-    | undefined;
-  return row ? toLead(row as LeadRow) : null;
+export async function getLead(id: string): Promise<Lead | null> {
+  const client = await db();
+  const result = await client.execute({
+    sql: "SELECT * FROM leads WHERE id = ?",
+    args: [id],
+  });
+  const row = result.rows[0];
+  return row ? toLead(row as unknown as Row) : null;
 }
 
-export function getHistory(leadId: string): HistoryEntry[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM history WHERE lead_id = ? ORDER BY created_at ASC, rowid ASC")
-    .all(leadId) as unknown as HistoryRow[];
-  return rows.map(toHistoryEntry);
+export async function getHistory(leadId: string): Promise<HistoryEntry[]> {
+  const client = await db();
+  const result = await client.execute({
+    sql: "SELECT * FROM history WHERE lead_id = ? ORDER BY created_at ASC, rowid ASC",
+    args: [leadId],
+  });
+  return result.rows.map((row) => toHistoryEntry(row as unknown as Row));
 }
 
-/** Todos os leads ja enriquecidos e ordenados pela urgencia do produto. */
-export function listInsights(now: Date = new Date()): LeadInsight[] {
-  return analyseLeads(listLeads(), now).sort(sortByUrgency);
+/** Todos os leads já enriquecidos e ordenados pela urgência do produto. */
+export async function listInsights(now: Date = new Date()): Promise<LeadInsight[]> {
+  const leads = await listLeads();
+  return analyseLeads(leads, now).sort(sortByUrgency);
 }
 
-export function getInsight(id: string, now: Date = new Date()): LeadInsight | null {
-  const lead = getLead(id);
+export async function getInsight(
+  id: string,
+  now: Date = new Date(),
+): Promise<LeadInsight | null> {
+  const lead = await getLead(id);
   return lead ? analyseLead(lead, now) : null;
 }
 
 /* ------------------------------------------------------------------ escrita */
 
-function insertHistory(
+async function insertHistory(
   leadId: string,
   type: HistoryType,
   message: string,
   createdAt: string = new Date().toISOString(),
-): void {
-  getDb()
-    .prepare("INSERT INTO history (id, lead_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(randomUUID(), leadId, type, message, createdAt);
+): Promise<void> {
+  const client = await db();
+  await client.execute({
+    sql: "INSERT INTO history (id, lead_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)",
+    args: [randomUUID(), leadId, type, message, createdAt],
+  });
 }
 
 export interface CreateLeadInput {
@@ -124,126 +124,176 @@ export interface CreateLeadInput {
   notes?: string | null;
 }
 
-export function createLead(input: CreateLeadInput): Lead {
-  const db = getDb();
+export async function createLead(input: CreateLeadInput): Promise<Lead> {
+  const client = await db();
   const id = randomUUID();
   const now = new Date().toISOString();
   const status = input.status ?? "NOVO";
 
   /**
-   * Um lead criado ja em CONTATO/ORCAMENTO/NEGOCIACAO representa uma conversa
-   * que ja aconteceu, entao contamos "agora" como ultima interacao. Um lead
-   * NOVO nasce sem contato — e por isso comeca a envelhecer imediatamente.
+   * Um lead criado já em CONTATO/ORCAMENTO/NEGOCIACAO representa uma conversa
+   * que já aconteceu, então contamos "agora" como última interação. Um lead
+   * NOVO nasce sem contato — e por isso começa a envelhecer imediatamente.
    */
   const alreadyEngaged = status !== "NOVO" && status !== "PERDIDO" && status !== "GANHO";
-  const lastContactAt = alreadyEngaged ? now : null;
 
-  db.prepare(
-    `INSERT INTO leads
-      (id, name, phone, email, company, value, status, source, created_at, last_contact_at, next_follow_up_at, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    input.name.trim(),
-    input.phone?.trim() || null,
-    input.email?.trim() || null,
-    input.company?.trim() || null,
-    input.value ?? 0,
-    status,
-    input.source?.trim() || null,
-    now,
-    lastContactAt,
-    null,
-    input.notes?.trim() || null,
+  await client.batch(
+    [
+      {
+        sql: `INSERT INTO leads
+                (id, name, phone, email, company, value, status, source, created_at, last_contact_at, next_follow_up_at, notes)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          id,
+          input.name.trim(),
+          input.phone?.trim() || null,
+          input.email?.trim() || null,
+          input.company?.trim() || null,
+          input.value ?? 0,
+          status,
+          input.source?.trim() || null,
+          now,
+          alreadyEngaged ? now : null,
+          null,
+          input.notes?.trim() || null,
+        ],
+      },
+      {
+        sql: "INSERT INTO history (id, lead_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)",
+        args: [
+          randomUUID(),
+          id,
+          "NOTE",
+          `Oportunidade cadastrada com status ${STATUS_LABELS[status]}.`,
+          now,
+        ],
+      },
+    ],
+    "write",
   );
 
-  insertHistory(id, "NOTE", `Oportunidade cadastrada com status ${STATUS_LABELS[status]}.`, now);
-
-  const lead = getLead(id);
+  const lead = await getLead(id);
   if (!lead) throw new Error("Falha ao criar a oportunidade.");
   return lead;
 }
 
 /**
- * Acao central do produto: o vendedor fez o contato.
+ * Ação central do produto: o vendedor fez o contato.
  *
- * Atualiza lastContactAt, agenda o proximo follow-up, registra o historico e
- * — como consequencia — zera os dias parados e tira o lead da fila de alertas.
+ * Atualiza lastContactAt, agenda o próximo follow-up, registra o histórico e
+ * — como consequência — zera os dias parados e tira o lead da fila de alertas.
  */
-export function markAsContacted(leadId: string, message?: string): void {
-  const lead = getLead(leadId);
+export async function markAsContacted(leadId: string, message?: string): Promise<void> {
+  const lead = await getLead(leadId);
   if (!lead) throw new Error("Oportunidade não encontrada.");
 
+  const client = await db();
   const now = new Date();
   const nowIso = now.toISOString();
   const nextFollowUp = new Date(now);
   nextFollowUp.setDate(nextFollowUp.getDate() + followUpConfig.nextFollowUpInDays);
 
-  getDb()
-    .prepare("UPDATE leads SET last_contact_at = ?, next_follow_up_at = ? WHERE id = ?")
-    .run(nowIso, nextFollowUp.toISOString(), leadId);
-
   const trimmed = message?.trim();
-  insertHistory(
-    leadId,
-    "FOLLOW_UP",
-    trimmed ? `Follow-up realizado: "${trimmed}"` : "Follow-up realizado.",
-    nowIso,
-  );
+  const statements = [
+    {
+      sql: "UPDATE leads SET last_contact_at = ?, next_follow_up_at = ? WHERE id = ?",
+      args: [nowIso, nextFollowUp.toISOString(), leadId],
+    },
+    {
+      sql: "INSERT INTO history (id, lead_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)",
+      args: [
+        randomUUID(),
+        leadId,
+        "FOLLOW_UP",
+        trimmed ? `Follow-up realizado: "${trimmed}"` : "Follow-up realizado.",
+        nowIso,
+      ],
+    },
+  ];
 
-  // Um lead NOVO que acabou de receber follow-up ja esta, na pratica, em contato.
+  // Um lead NOVO que acabou de receber follow-up já está, na prática, em contato.
   if (lead.status === "NOVO") {
-    updateStatus(leadId, "CONTATO", { silent: true });
-    insertHistory(leadId, "STATUS_CHANGE", "Status alterado para Em contato.", nowIso);
+    statements.push(
+      {
+        sql: "UPDATE leads SET status = 'CONTATO' WHERE id = ?",
+        args: [leadId],
+      },
+      {
+        sql: "INSERT INTO history (id, lead_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)",
+        args: [
+          randomUUID(),
+          leadId,
+          "STATUS_CHANGE",
+          "Status alterado para Em contato.",
+          nowIso,
+        ],
+      },
+    );
   }
+
+  await client.batch(statements, "write");
 }
 
-export function updateStatus(
-  leadId: string,
-  status: LeadStatus,
-  options: { silent?: boolean } = {},
-): void {
-  const lead = getLead(leadId);
+export async function updateStatus(leadId: string, status: LeadStatus): Promise<void> {
+  const lead = await getLead(leadId);
   if (!lead) throw new Error("Oportunidade não encontrada.");
   if (lead.status === status) return;
 
-  const db = getDb();
+  const client = await db();
   const nowIso = new Date().toISOString();
 
-  // Ganho/perdido encerram o ciclo: nao faz sentido manter follow-up agendado.
+  // Ganho/perdido encerram o ciclo: não faz sentido manter follow-up agendado.
   const clearFollowUp = status === "GANHO" || status === "PERDIDO";
 
-  db.prepare(
-    `UPDATE leads
-        SET status = ?,
-            next_follow_up_at = CASE WHEN ? = 1 THEN NULL ELSE next_follow_up_at END
-      WHERE id = ?`,
-  ).run(status, clearFollowUp ? 1 : 0, leadId);
-
-  if (!options.silent) {
-    insertHistory(
-      leadId,
-      "STATUS_CHANGE",
-      `Status alterado de ${STATUS_LABELS[lead.status]} para ${STATUS_LABELS[status]}.`,
-      nowIso,
-    );
-  }
+  await client.batch(
+    [
+      {
+        sql: clearFollowUp
+          ? "UPDATE leads SET status = ?, next_follow_up_at = NULL WHERE id = ?"
+          : "UPDATE leads SET status = ? WHERE id = ?",
+        args: [status, leadId],
+      },
+      {
+        sql: "INSERT INTO history (id, lead_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)",
+        args: [
+          randomUUID(),
+          leadId,
+          "STATUS_CHANGE",
+          `Status alterado de ${STATUS_LABELS[lead.status]} para ${STATUS_LABELS[status]}.`,
+          nowIso,
+        ],
+      },
+    ],
+    "write",
+  );
 }
 
-export function addNote(leadId: string, message: string): void {
+export async function addNote(leadId: string, message: string): Promise<void> {
   const trimmed = message.trim();
   if (!trimmed) return;
-  insertHistory(leadId, "NOTE", trimmed);
+  await insertHistory(leadId, "NOTE", trimmed);
 }
 
-/** Registra que o cliente respondeu — tambem conta como interacao. */
-export function registerResponse(leadId: string, message: string): void {
+/** Registra que o cliente respondeu — também conta como interação. */
+export async function registerResponse(leadId: string, message: string): Promise<void> {
+  const client = await db();
   const nowIso = new Date().toISOString();
-  getDb().prepare("UPDATE leads SET last_contact_at = ? WHERE id = ?").run(nowIso, leadId);
-  insertHistory(leadId, "RESPONSE", message.trim() || "Cliente respondeu.", nowIso);
+  await client.batch(
+    [
+      {
+        sql: "UPDATE leads SET last_contact_at = ? WHERE id = ?",
+        args: [nowIso, leadId],
+      },
+      {
+        sql: "INSERT INTO history (id, lead_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)",
+        args: [randomUUID(), leadId, "RESPONSE", message.trim() || "Cliente respondeu.", nowIso],
+      },
+    ],
+    "write",
+  );
 }
 
-/* ------------------------------------------------------------------ metricas */
+/* ------------------------------------------------------------------ métricas */
 
 export interface DashboardMetrics {
   activeLeads: number;
@@ -258,29 +308,32 @@ export interface DashboardMetrics {
 
 /**
  * "Recuperado" = oportunidade GANHO que recebeu pelo menos um follow-up
- * registrado nesta ferramenta antes de fechar. E um numero derivado de dados
- * reais do banco, nao um valor inventado.
+ * registrado nesta ferramenta antes de fechar. É um número derivado de dados
+ * reais do banco, não um valor inventado.
  */
-function recoveredStats(): { count: number; value: number } {
-  const row = getDb()
-    .prepare(
-      `SELECT COUNT(*) AS count, COALESCE(SUM(l.value), 0) AS value
-         FROM leads l
-        WHERE l.status = 'GANHO'
-          AND EXISTS (
-            SELECT 1 FROM history h
-             WHERE h.lead_id = l.id AND h.type = 'FOLLOW_UP'
-          )`,
-    )
-    .get() as unknown as { count: number; value: number };
-  return { count: Number(row.count), value: Number(row.value) };
+async function recoveredStats(): Promise<{ count: number; value: number }> {
+  const client = await db();
+  const result = await client.execute(
+    `SELECT COUNT(*) AS count, COALESCE(SUM(l.value), 0) AS value
+       FROM leads l
+      WHERE l.status = 'GANHO'
+        AND EXISTS (
+          SELECT 1 FROM history h
+           WHERE h.lead_id = l.id AND h.type = 'FOLLOW_UP'
+        )`,
+  );
+  const row = result.rows[0] as unknown as Row;
+  return { count: Number(row.count ?? 0), value: Number(row.value ?? 0) };
 }
 
-export function getDashboardMetrics(now: Date = new Date()): DashboardMetrics {
-  const insights = analyseLeads(listLeads(), now);
+export async function getDashboardMetrics(
+  now: Date = new Date(),
+): Promise<DashboardMetrics> {
+  const leads = await listLeads();
+  const insights = analyseLeads(leads, now);
   const stalled = insights.filter((i) => i.needsAction);
   const critical = stalled.filter((i) => i.priority === "CRITICO");
-  const recovered = recoveredStats();
+  const recovered = await recoveredStats();
 
   return {
     activeLeads: insights.filter((i) => isOpen(i.lead)).length,

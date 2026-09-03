@@ -20,21 +20,25 @@ produto precisa ser legível por alguém que abriu o repositório há dez minuto
 | Framework | **Next.js 15** (App Router) | Server Components + Server Actions dão um app com banco sem escrever nenhuma rota de API |
 | Linguagem | **TypeScript** (strict) | Status e tipos de histórico viram união de literais, não strings soltas |
 | Estilo | **Tailwind CSS v4** | Configuração em CSS, sem `tailwind.config.js` |
-| Banco | **SQLite via `node:sqlite`** | Embutido no Node 22+ — ver abaixo |
+| Banco | **SQLite via libSQL** (`@libsql/client`) | Arquivo local em dev, Turso em produção — ver Decisão 8 |
 | Ícones | **lucide-react** | Pedido explicitamente; leve e tree-shakeable |
 
-**Total de dependências de produção: 4** (`next`, `react`, `react-dom`,
-`lucide-react`).
+**Total de dependências de produção: 5** (`next`, `react`, `react-dom`,
+`lucide-react`, `@libsql/client`).
 
 ---
 
-## Decisão 1 — `node:sqlite` no lugar de Prisma ou Drizzle
+## Decisão 1 — SQLite sem ORM (hoje via libSQL)
 
 **Contexto:** foram sugeridos Prisma ou Drizzle. O schema tem duas tabelas e
 nenhum relacionamento além de uma chave estrangeira.
 
-**O que foi escolhido:** o módulo `node:sqlite`, embutido no Node 22.5+, com SQL
-escrito à mão numa camada de repositório (`src/lib/db/queries.ts`).
+**O que foi escolhido:** SQLite com SQL escrito à mão numa camada de
+repositório (`src/lib/db/queries.ts`), sem ORM.
+
+O driver começou como `node:sqlite` (embutido no Node 22) e passou a
+`@libsql/client` quando o projeto foi para a Vercel — ver Decisão 8. O SQL não
+mudou uma linha: libSQL é um fork do SQLite e fala o mesmo dialeto.
 
 **Por quê:**
 
@@ -185,6 +189,53 @@ src/app/leads/
 O route group escopa o Suspense à lista sem alterar a rota. `[id]` fica sem
 `loading.tsx` de propósito: lê uma linha do SQLite de forma síncrona, então o
 skeleton não apareceria de qualquer jeito, e um 404 correto vale mais.
+
+---
+
+## Decisão 8 — libSQL/Turso para o deploy serverless
+
+**O problema:** SQLite em arquivo não sobrevive à Vercel. O bundle é
+somente-leitura (um `mkdirSync` ali levanta `EROFS`) e o `/tmp` é efêmero e
+por instância. Como o produto é majoritariamente **escrita** — criar lead,
+marcar follow-up, mudar status —, os dados sumiriam entre requisições. Fingir
+que funciona seria pior do que não publicar.
+
+**As opções avaliadas:**
+
+| Opção | Custo da mudança |
+| --- | --- |
+| Postgres (Neon / Vercel Postgres) | reescrever todo o SQL: outro dialeto, outros placeholders |
+| Plataforma com disco persistente (Fly, Render) | zero código, mas mais ops e sai da Vercel |
+| **libSQL / Turso** | **só o driver: o SQL continua igual** |
+
+**Escolhemos libSQL** porque é um fork do SQLite: `schema.sql` e todas as
+queries continuam idênticos. O mesmo `@libsql/client` atende os dois
+ambientes, então dev e produção rodam o mesmo caminho de código:
+
+```
+local     -> file:./data/follow.db
+produção  -> libsql://...turso.io   (TURSO_DATABASE_URL)
+```
+
+**O que custou:** a API do libSQL é assíncrona. `queries.ts` virou `async` e as
+páginas passaram a `await` nas leituras. Mudança mecânica, sem efeito na
+regra de negócio: `src/lib/domain/` não foi tocado.
+
+**Ganho lateral:** escritas que antes eram várias chamadas separadas agora vão
+num `batch(..., "write")` — uma transação de verdade. Criar um lead grava a
+linha e o primeiro evento de histórico atomicamente.
+
+**O guard olha a plataforma, não o `NODE_ENV`.** Rodar `npm start` na própria
+máquina com arquivo local é legítimo; o que não pode é serverless sem banco
+hospedado. Por isso a checagem é `process.env.VERCEL`, não
+`NODE_ENV === "production"` — a primeira versão errou nisso e quebrou o
+`npm start` local.
+
+**Configuração faltando é tela, não exceção.** O Next censura mensagens de
+erro de Server Component em produção, então um deploy sem as variáveis de
+ambiente mostraria um erro genérico. `describeConfigProblem()` detecta o caso
+e renderiza instruções (`ConfigNotice`). Não vaza segredo: diz apenas qual
+variável falta.
 
 ---
 

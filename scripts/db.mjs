@@ -1,21 +1,36 @@
 /**
  * Helper compartilhado pelos scripts de banco.
- * Abre o SQLite e aplica src/lib/db/schema.sql (idempotente).
+ *
+ * Usa o MESMO cliente da aplicação (libSQL), então os scripts funcionam tanto
+ * no arquivo local quanto no banco hospedado (Turso).
+ *
+ *   local  -> file:./data/follow.db
+ *   remoto -> defina TURSO_DATABASE_URL e TURSO_AUTH_TOKEN
  */
-import { DatabaseSync } from "node:sqlite";
+import { createClient } from "@libsql/client";
 import { readFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = process.cwd();
+const LOCAL_FILE = process.env.FOLLOW_DB_PATH ?? path.join(ROOT, "data", "follow.db");
 
-export const DB_PATH =
-  process.env.FOLLOW_DB_PATH ?? path.join(ROOT, "data", "follow.db");
+const REMOTE_URL = process.env.TURSO_DATABASE_URL?.trim();
 
-export function openDb() {
-  mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  const db = new DatabaseSync(DB_PATH);
-  db.exec("PRAGMA journal_mode = WAL;");
-  db.exec("PRAGMA foreign_keys = ON;");
-  db.exec(readFileSync(path.join(ROOT, "src", "lib", "db", "schema.sql"), "utf8"));
-  return db;
+export const TARGET = REMOTE_URL ? "remoto (Turso)" : `local (${LOCAL_FILE})`;
+
+export function openClient() {
+  if (!REMOTE_URL) mkdirSync(path.dirname(LOCAL_FILE), { recursive: true });
+  return createClient({
+    url: REMOTE_URL ?? `file:${LOCAL_FILE}`,
+    authToken: process.env.TURSO_AUTH_TOKEN?.trim() || undefined,
+  });
+}
+
+export function schemaSql() {
+  return readFileSync(path.join(ROOT, "src", "lib", "db", "schema.sql"), "utf8");
+}
+
+/** Cria as tabelas se ainda não existirem. */
+export async function pushSchema(client) {
+  await client.executeMultiple(schemaSql());
 }
