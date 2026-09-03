@@ -12,7 +12,8 @@
     "db:reset": "node scripts/reset.mjs",
     "db:seed": "node scripts/seed.mjs",
     "setup": "node scripts/reset.mjs && node scripts/seed.mjs",
-    "db:push": "node scripts/push-schema.mjs"
+    "db:push": "node scripts/push-schema.mjs",
+    "db:sql": "node scripts/build-seed-sql.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

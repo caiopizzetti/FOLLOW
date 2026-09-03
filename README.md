@@ -189,6 +189,7 @@ npm run build       # build de produção
 | `npm run lint` | ESLint (flat config, regras do Next) |
 | `npm run typecheck` | Checagem de tipos (`tsc --noEmit`) |
 | `npm run db:push` | Cria as tabelas no banco alvo (usado antes do 1º deploy) |
+| `npm run db:sql` | Regera `scripts/seed.sql` (seed colável no console do Turso) |
 | `npm run db:reset` | Limpa as tabelas (mantém o arquivo do banco) |
 | `npm run db:seed` | Insere os dados fictícios de demonstração |
 | `npm run setup` | `db:reset` + `db:seed` |
@@ -348,19 +349,59 @@ Nunca comite esses valores. Use `.env.example` como referência e
 Se as variáveis faltarem, a aplicação **sobe mesmo assim** e mostra uma tela
 explicando o que configurar — em vez de um erro genérico.
 
-### Primeiro deploy
+### Primeiro deploy — só pelo navegador, sem terminal
+
+Este é o caminho mais curto. Não exige clonar o projeto nem instalar nada.
+
+**1. Criar o banco (Turso)**
+
+1. Entre em <https://turso.tech> e crie uma conta (o plano gratuito basta).
+2. Crie um banco — pode chamar de `follow`.
+3. Abra o **SQL console / Studio** desse banco.
+4. Cole o conteúdo de [`scripts/seed.sql`](scripts/seed.sql) e execute.
+   Esse arquivo cria as tabelas e insere os 18 leads fictícios. As datas são
+   calculadas na hora, então os leads "parados há 8 dias" continuam coerentes.
+5. Na tela do banco, copie:
+   - a **URL** (algo como `libsql://follow-seu-usuario.turso.io`) → `TURSO_DATABASE_URL`
+   - um **token** recém-criado → `TURSO_AUTH_TOKEN`
+
+**2. Publicar (Vercel)**
+
+1. Entre em <https://vercel.com> e faça login **com a conta do GitHub**.
+2. **Add New → Project** e importe o repositório `FOLLOW`.
+3. Em **Branch**, selecione a branch que você quer publicar.
+4. Abra **Environment Variables** e adicione as duas:
+
+   | Name | Value |
+   | --- | --- |
+   | `TURSO_DATABASE_URL` | a URL copiada do Turso |
+   | `TURSO_AUTH_TOKEN` | o token copiado do Turso |
+
+5. Clique em **Deploy**.
+
+A Vercel detecta Next.js sozinha — não é preciso configurar build, output nem
+comando de instalação.
+
+Ao final você recebe uma URL pública `https://<projeto>.vercel.app`, que abre
+em qualquer navegador, inclusive no celular.
+
+> Se você abrir a URL e vir **"Banco de dados não configurado"**, é porque as
+> variáveis não foram salvas ou o deploy rodou antes delas. Confira em
+> Settings → Environment Variables e publique de novo.
+
+### Alternativa por terminal
 
 ```bash
-# 1. criar o banco no Turso (uma vez)
+# banco
 turso db create follow
 turso db show follow --url          # -> TURSO_DATABASE_URL
 turso db tokens create follow       # -> TURSO_AUTH_TOKEN
 
-# 2. criar as tabelas e popular a demo
+# tabelas + demo
 TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... npm run db:push
 TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... npm run db:seed
 
-# 3. publicar
+# publicar
 vercel --prod
 ```
 
