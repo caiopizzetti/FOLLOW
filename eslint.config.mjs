@@ -22,6 +22,42 @@ const config = [
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },
+  {
+    /**
+     * Nada em src/ pode ler o disco em runtime.
+     *
+     * Arquivos-fonte (como src/lib/db/schema.sql) nao entram no build do Next.
+     * Em serverless eles simplesmente nao existem, e a leitura quebra com
+     * ENOENT — foi exatamente assim que a criacao de lead quebrou em producao
+     * na Vercel. Migracao e trabalho dos scripts em scripts/, que rodam com o
+     * repositorio em disco. Ver docs/arquitetura.md, Decisao 9.
+     */
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "node:fs",
+              message:
+                "Codigo de runtime nao pode ler o filesystem: arquivos-fonte nao existem no bundle serverless. Use os scripts em scripts/ para migracao.",
+            },
+            {
+              name: "fs",
+              message:
+                "Codigo de runtime nao pode ler o filesystem: arquivos-fonte nao existem no bundle serverless. Use os scripts em scripts/ para migracao.",
+            },
+            {
+              name: "node:fs/promises",
+              message:
+                "Codigo de runtime nao pode ler o filesystem: arquivos-fonte nao existem no bundle serverless. Use os scripts em scripts/ para migracao.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ];
 
 export default config;

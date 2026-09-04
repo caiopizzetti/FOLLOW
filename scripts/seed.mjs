@@ -9,13 +9,34 @@ import { randomUUID } from "node:crypto";
 import { openClient, pushSchema, TARGET } from "./db.mjs";
 import { DEMO_LEADS } from "./seed-data.mjs";
 
-/** Converte "há N dias" em um ISO timestamp. */
-function daysAgoToIso(days, hour = 10) {
+/**
+ * Converte "há N dias" em um ISO timestamp.
+ *
+ * Ancora no dia civil de America/Sao_Paulo — o mesmo fuso que a aplicação usa
+ * para contar dias parados. Subtrair do calendário local da máquina daria um
+ * dia de diferença sempre que os dois fusos estivessem em datas distintas
+ * (ex.: 00:30 UTC = 21:30 do dia anterior em São Paulo).
+ *
+ * O horário fixo de 12:00Z (09:00 em São Paulo) mantém a data longe de
+ * qualquer fronteira de dia.
+ */
+const TIMEZONE = "America/Sao_Paulo";
+
+function todayInTimezone() {
+  // en-CA produz exatamente YYYY-MM-DD.
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: TIMEZONE,
+  }).format(new Date());
+}
+
+function daysAgoToIso(days) {
   if (days === null || days === undefined) return null;
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  d.setHours(hour, 0, 0, 0);
-  return d.toISOString();
+  const anchor = new Date(`${todayInTimezone()}T12:00:00Z`);
+  anchor.setUTCDate(anchor.getUTCDate() - days);
+  return anchor.toISOString();
 }
 
 const client = openClient();
@@ -48,9 +69,9 @@ for (const lead of DEMO_LEADS) {
       lead.value,
       lead.status,
       lead.source ?? null,
-      daysAgoToIso(lead.createdDaysAgo, 9),
+      daysAgoToIso(lead.createdDaysAgo),
       daysAgoToIso(lead.lastContactDaysAgo),
-      daysAgoToIso(lead.nextFollowUpDaysAgo, 9),
+      daysAgoToIso(lead.nextFollowUpDaysAgo),
       lead.notes ?? null,
     ],
   });
@@ -58,7 +79,7 @@ for (const lead of DEMO_LEADS) {
   for (const event of lead.history ?? []) {
     statements.push({
       sql: "INSERT INTO history (id, lead_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)",
-      args: [randomUUID(), id, event.type, event.message, daysAgoToIso(event.daysAgo, 11)],
+      args: [randomUUID(), id, event.type, event.message, daysAgoToIso(event.daysAgo)],
     });
   }
 }

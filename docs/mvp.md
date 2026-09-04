@@ -251,6 +251,7 @@ As datas são relativas ao dia da execução, então a demonstração nunca "env
 | Estados de loading, vazio, erro e sucesso | existem em todas as rotas |
 | Lead inexistente devolve 404 (status, não só a tela) | funciona |
 | Persistência após reload **e** após restart do servidor | funciona |
+| Fluxo completo com `schema.sql` ausente (condição serverless) | funciona |
 
 Verificado com um roteiro automatizado no Chromium (79 asserções), rodado tanto
 em `npm run dev` quanto em `npm start`.

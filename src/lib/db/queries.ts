@@ -10,7 +10,9 @@ import type {
   LeadStatus,
 } from "../domain/types";
 import { STATUS_LABELS } from "../domain/types";
-import { db } from "./client";
+import type { InStatement, ResultSet } from "@libsql/client";
+
+import { explainDbError, getDb } from "./client";
 
 /**
  * Camada de acesso a dados. Todo SQL do produto mora aqui — as telas só
@@ -18,7 +20,32 @@ import { db } from "./client";
  *
  * O SQL é o mesmo desde a primeira versão: libSQL fala o dialeto do SQLite.
  * O que mudou foi a API do driver, que é assíncrona.
+ *
+ * Esta camada NUNCA cria tabelas. O schema é aplicado pelos scripts de
+ * migração (`npm run db:push`, `db:seed`, `db:reset`). Ver docs/arquitetura.md,
+ * Decisão 9.
  */
+
+/**
+ * Únicos pontos de acesso ao banco. Traduzem erros do driver em mensagens
+ * acionáveis (ex.: tabela ausente = faltou rodar a migração).
+ */
+async function exec(statement: InStatement): Promise<ResultSet> {
+  try {
+    return await getDb().execute(statement);
+  } catch (error) {
+    throw explainDbError(error);
+  }
+}
+
+/** Escrita transacional: ou tudo grava, ou nada grava. */
+async function writeBatch(statements: InStatement[]): Promise<void> {
+  try {
+    await getDb().batch(statements, "write");
+  } catch (error) {
+    throw explainDbError(error);
+  }
+}
 
 type Row = Record<string, unknown>;
 
@@ -60,14 +87,12 @@ function toHistoryEntry(row: Row): HistoryEntry {
 /* ------------------------------------------------------------------ leitura */
 
 export async function listLeads(): Promise<Lead[]> {
-  const client = await db();
-  const result = await client.execute("SELECT * FROM leads ORDER BY created_at DESC");
+  const result = await exec("SELECT * FROM leads ORDER BY created_at DESC");
   return result.rows.map((row) => toLead(row as unknown as Row));
 }
 
 export async function getLead(id: string): Promise<Lead | null> {
-  const client = await db();
-  const result = await client.execute({
+  const result = await exec({
     sql: "SELECT * FROM leads WHERE id = ?",
     args: [id],
   });
@@ -76,8 +101,7 @@ export async function getLead(id: string): Promise<Lead | null> {
 }
 
 export async function getHistory(leadId: string): Promise<HistoryEntry[]> {
-  const client = await db();
-  const result = await client.execute({
+  const result = await exec({
     sql: "SELECT * FROM history WHERE lead_id = ? ORDER BY created_at ASC, rowid ASC",
     args: [leadId],
   });
@@ -106,8 +130,7 @@ async function insertHistory(
   message: string,
   createdAt: string = new Date().toISOString(),
 ): Promise<void> {
-  const client = await db();
-  await client.execute({
+  await exec({
     sql: "INSERT INTO history (id, lead_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)",
     args: [randomUUID(), leadId, type, message, createdAt],
   });
@@ -125,7 +148,6 @@ export interface CreateLeadInput {
 }
 
 export async function createLead(input: CreateLeadInput): Promise<Lead> {
-  const client = await db();
   const id = randomUUID();
   const now = new Date().toISOString();
   const status = input.status ?? "NOVO";
@@ -137,7 +159,7 @@ export async function createLead(input: CreateLeadInput): Promise<Lead> {
    */
   const alreadyEngaged = status !== "NOVO" && status !== "PERDIDO" && status !== "GANHO";
 
-  await client.batch(
+  await writeBatch(
     [
       {
         sql: `INSERT INTO leads
@@ -169,7 +191,6 @@ export async function createLead(input: CreateLeadInput): Promise<Lead> {
         ],
       },
     ],
-    "write",
   );
 
   const lead = await getLead(id);
@@ -187,7 +208,6 @@ export async function markAsContacted(leadId: string, message?: string): Promise
   const lead = await getLead(leadId);
   if (!lead) throw new Error("Oportunidade não encontrada.");
 
-  const client = await db();
   const now = new Date();
   const nowIso = now.toISOString();
   const nextFollowUp = new Date(now);
@@ -231,7 +251,7 @@ export async function markAsContacted(leadId: string, message?: string): Promise
     );
   }
 
-  await client.batch(statements, "write");
+  await writeBatch(statements);
 }
 
 export async function updateStatus(leadId: string, status: LeadStatus): Promise<void> {
@@ -239,13 +259,12 @@ export async function updateStatus(leadId: string, status: LeadStatus): Promise<
   if (!lead) throw new Error("Oportunidade não encontrada.");
   if (lead.status === status) return;
 
-  const client = await db();
   const nowIso = new Date().toISOString();
 
   // Ganho/perdido encerram o ciclo: não faz sentido manter follow-up agendado.
   const clearFollowUp = status === "GANHO" || status === "PERDIDO";
 
-  await client.batch(
+  await writeBatch(
     [
       {
         sql: clearFollowUp
@@ -264,7 +283,6 @@ export async function updateStatus(leadId: string, status: LeadStatus): Promise<
         ],
       },
     ],
-    "write",
   );
 }
 
@@ -276,9 +294,8 @@ export async function addNote(leadId: string, message: string): Promise<void> {
 
 /** Registra que o cliente respondeu — também conta como interação. */
 export async function registerResponse(leadId: string, message: string): Promise<void> {
-  const client = await db();
   const nowIso = new Date().toISOString();
-  await client.batch(
+  await writeBatch(
     [
       {
         sql: "UPDATE leads SET last_contact_at = ? WHERE id = ?",
@@ -289,7 +306,6 @@ export async function registerResponse(leadId: string, message: string): Promise
         args: [randomUUID(), leadId, "RESPONSE", message.trim() || "Cliente respondeu.", nowIso],
       },
     ],
-    "write",
   );
 }
 
@@ -312,8 +328,7 @@ export interface DashboardMetrics {
  * reais do banco, não um valor inventado.
  */
 async function recoveredStats(): Promise<{ count: number; value: number }> {
-  const client = await db();
-  const result = await client.execute(
+  const result = await exec(
     `SELECT COUNT(*) AS count, COALESCE(SUM(l.value), 0) AS value
        FROM leads l
       WHERE l.status = 'GANHO'

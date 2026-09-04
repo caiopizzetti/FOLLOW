@@ -1,5 +1,4 @@
 import { createClient, type Client } from "@libsql/client";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -9,19 +8,42 @@ import path from "node:path";
  * Usamos libSQL (fork do SQLite) através de @libsql/client, que fala o mesmo
  * dialeto do SQLite e atende os dois ambientes com o MESMO código:
  *
- *   local       -> file:./data/follow.db      (arquivo, como antes)
+ *   local       -> file:./data/follow.db      (arquivo)
  *   produção    -> libsql://...turso.io       (Turso, via HTTP)
  *
- * Por que não `node:sqlite` mais: em ambiente serverless (Vercel) o sistema
- * de arquivos do bundle é somente-leitura e /tmp é efêmero e por instância,
- * então toda escrita se perderia. Ver docs/arquitetura.md, Decisão 8.
+ * ATENÇÃO — este módulo NÃO pode tocar o filesystem.
+ *
+ * Em runtime ele só abre a conexão e executa SQL. Criar tabelas é trabalho de
+ * setup/migração (`npm run db:push`, `db:seed`, `db:reset`), que roda em
+ * ambiente com o repositório em disco.
+ *
+ * Motivo: `schema.sql` é um arquivo-fonte e não entra no build do Next. Ler
+ * ele em runtime só funciona se a plataforma copiar o arquivo por conta
+ * própria — o que a Vercel fez para as rotas de página, mas não para o
+ * caminho das Server Actions, quebrando a criação de lead com
+ * `ENOENT ... /var/task/src/lib/db/schema.sql`. Ver docs/arquitetura.md,
+ * Decisão 9.
  */
 
 const LOCAL_FILE = process.env.FOLLOW_DB_PATH ?? path.join(process.cwd(), "data", "follow.db");
 
 declare global {
   var __followDb: Client | undefined;
-  var __followSchema: Promise<void> | undefined;
+}
+
+/**
+ * Descreve um problema de configuração do banco, ou null se estiver tudo certo.
+ *
+ * Existe porque o Next censura a mensagem de erros de Server Component em
+ * builds de produção ("The specific message is omitted..."). Sem isto, quem
+ * esquecesse as variáveis de ambiente no deploy veria um erro genérico sem
+ * saber o que fazer. Não expõe segredo nenhum — só diz qual variável falta.
+ */
+export function describeConfigProblem(): string | null {
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  if (!isServerless) return null;
+  if (process.env.TURSO_DATABASE_URL?.trim()) return null;
+  return "TURSO_DATABASE_URL não está configurada neste deploy.";
 }
 
 /**
@@ -50,20 +72,8 @@ function resolveUrl(): string {
 }
 
 /**
- * Descreve um problema de configuração do banco, ou null se estiver tudo certo.
- *
- * Existe porque o Next censura a mensagem de erros de Server Component em
- * builds de produção ("The specific message is omitted..."). Sem isto, quem
- * esquecesse as variáveis de ambiente no deploy veria um erro genérico sem
- * saber o que fazer. Não expõe segredo nenhum — só diz qual variável falta.
+ * Cliente do banco. Sem I/O de arquivo, sem migração: só a conexão.
  */
-export function describeConfigProblem(): string | null {
-  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-  if (!isServerless) return null;
-  if (process.env.TURSO_DATABASE_URL?.trim()) return null;
-  return "TURSO_DATABASE_URL não está configurada neste deploy.";
-}
-
 export function getDb(): Client {
   if (!globalThis.__followDb) {
     globalThis.__followDb = createClient({
@@ -74,31 +84,25 @@ export function getDb(): Client {
   return globalThis.__followDb;
 }
 
-/**
- * Aplica o schema (idempotente) uma única vez por processo.
- * Em dev isso cria o banco na primeira requisição; em produção o schema já
- * foi aplicado por `npm run db:push`, então isto é só uma rede de segurança.
- */
-export function ensureSchema(): Promise<void> {
-  if (!globalThis.__followSchema) {
-    const sql = readFileSync(
-      path.join(process.cwd(), "src", "lib", "db", "schema.sql"),
-      "utf8",
-    );
-    globalThis.__followSchema = getDb()
-      .executeMultiple(sql)
-      .then(() => undefined)
-      .catch((error) => {
-        // Não memoriza a falha: a próxima chamada tenta de novo.
-        globalThis.__followSchema = undefined;
-        throw error;
-      });
-  }
-  return globalThis.__followSchema;
-}
+/** As tabelas do produto. Usado só para diagnosticar erro de tabela ausente. */
+const TABLES = ["leads", "history"];
 
-/** Conexão pronta para uso: schema garantido. */
-export async function db(): Promise<Client> {
-  await ensureSchema();
-  return getDb();
+/**
+ * Traduz "no such table" numa mensagem acionável.
+ *
+ * Acontece quando o banco existe mas nunca recebeu o schema — ou seja, faltou
+ * rodar a migração. A mensagem aparece nos logs da plataforma; a tela mostra o
+ * erro genérico do Next, que censura detalhes em produção.
+ */
+export function explainDbError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/no such table/i.test(message) && TABLES.some((t) => message.includes(t))) {
+    return new Error(
+      `O banco está acessível, mas as tabelas não existem (${message}). ` +
+        "Rode a migração antes de usar a aplicação: `npm run db:push` apontando " +
+        "para o banco, ou cole scripts/seed.sql no console SQL do Turso.",
+      { cause: error },
+    );
+  }
+  return error instanceof Error ? error : new Error(message);
 }

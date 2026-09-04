@@ -239,6 +239,50 @@ variável falta.
 
 ---
 
+## Decisão 9 — runtime não toca o filesystem
+
+**O bug que motivou isto.** Depois do primeiro deploy, criar uma oportunidade
+quebrava em produção com:
+
+```
+ENOENT: no such file or directory, open '/var/task/src/lib/db/schema.sql'
+```
+
+**A causa.** A migração para libSQL introduziu um `ensureSchema()` que lia
+`schema.sql` do disco e era chamado por *toda* operação de banco, leitura
+inclusive. O comentário no código dizia que era "só uma rede de segurança" —
+mas era uma dependência dura de um arquivo que **não existe no bundle**:
+`schema.sql` é arquivo-fonte, não é importado por nenhum módulo, e o
+`next build` não o copia (confirmado: zero cópias em `.next/`).
+
+Em serverless ele só sobrevive se o tracer de arquivos da plataforma o copiar
+por conta própria. Na Vercel isso aconteceu para as rotas de página — por isso
+o dashboard e a lista funcionavam — mas não para o caminho da Server Action,
+que é onde a criação de lead roda. Daí o sintoma confuso: *ler funciona,
+escrever falha*.
+
+**A correção.** O runtime não cria mais schema e não lê mais arquivo nenhum:
+
+- `getDb()` só abre a conexão;
+- `queries.ts` executa SQL por dois pontos únicos, `exec()` e `writeBatch()`;
+- criar tabelas é trabalho exclusivo dos scripts (`db:push`, `db:seed`,
+  `db:reset`), que rodam com o repositório em disco.
+
+**Como isso não volta.** Uma regra de ESLint proíbe importar `node:fs` (e
+variantes) em `src/`. Reintroduzir o padrão quebra o `npm run lint`.
+
+**Como foi validado.** Rodando a aplicação com `src/lib/db/schema.sql`
+removido do disco — a mesma condição do `/var/task` — as 79 asserções passam,
+incluindo criar oportunidade, alterar status, marcar follow-up e persistência
+após recarregar. Antes da correção, essa condição reproduzia o ENOENT
+exatamente.
+
+**Lição que vale para o resto do projeto:** em serverless, só existe em
+runtime o que o bundler empacota. Arquivo-fonte lido por caminho montado em
+string não é rastreável e não é garantido.
+
+---
+
 ## Camadas
 
 ```
